@@ -1,0 +1,27 @@
+// Diagnóstico temporal: abre /api/diag en el navegador. No muestra secretos. Bórralo cuando todo funcione.
+export default async function handler(_req: any, res: any) {
+  const out: Record<string, unknown> = { node: process.version, env: {}, imports: {} };
+  const names = ["TURSO_DATABASE_URL","TURSO_AUTH_TOKEN","SESSION_SECRET","FIREBASE_SERVICE_ACCOUNT_JSON","BLOB_READ_WRITE_TOKEN","VITE_FIREBASE_API_KEY","VITE_FIREBASE_PROJECT_ID"];
+  for (const n of names) { const v = process.env[n]; (out.env as any)[n] = v ? `definida (${v.length} caracteres)` : "FALTA"; }
+  const url = process.env.TURSO_DATABASE_URL || "";
+  out.tursoUrl = { empiezaCon: url.split("://")[0].slice(0, 12), tieneEspaciosOComillas: /\s|["']/.test(url) };
+  try { JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON || "{}"); out.firebaseJson = "JSON válido"; }
+  catch (e: any) { out.firebaseJson = "JSON INVÁLIDO: " + String(e?.message).slice(0, 120); }
+  const tests: Record<string, () => Promise<unknown>> = {
+    "@libsql/client": () => import("@libsql/client"),
+    "firebase-admin/app": () => import("firebase-admin/app"),
+    "firebase-admin/messaging": () => import("firebase-admin/messaging"),
+    "@vercel/blob": () => import("@vercel/blob"),
+  };
+  for (const [m, load] of Object.entries(tests)) {
+    try { await load(); (out.imports as any)[m] = "ok"; }
+    catch (e: any) { (out.imports as any)[m] = "ERROR: " + String(e?.message).slice(0, 300); }
+  }
+  try {
+    const { createClient } = await import("@libsql/client");
+    const c = createClient({ url: url.trim(), authToken: (process.env.TURSO_AUTH_TOKEN || "").trim() });
+    await c.execute("SELECT 1");
+    out.turso = "conectado";
+  } catch (e: any) { out.turso = "ERROR: " + String(e?.message).slice(0, 300); }
+  res.status(200).json(out);
+}
