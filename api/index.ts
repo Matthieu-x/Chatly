@@ -67,9 +67,9 @@ async function pushTo(userId:string,title:string,body:string,data:Record<string,
   const messaging=await firebaseAdmin();
   if(!messaging)return {configured:false,sent:0,failed:0,reason:"missing-admin-credentials"};
   const rows=await db.execute({sql:"SELECT fcm_token FROM sessions WHERE user_id=? AND active=1 AND fcm_token IS NOT NULL",args:[userId]});
-  const tokens=rows.rows.map(r=>String(r.fcm_token)).filter(Boolean);
+  const tokens=rows.rows.map((r:any)=>String(r.fcm_token)).filter(Boolean);
   if(!tokens.length)return {configured:true,sent:0,failed:0,reason:"no-device-token"};
-  const results=await Promise.all(tokens.map(async t=>{
+  const results=await Promise.all(tokens.map(async (t:string)=>{
     try{await messaging.send({token:t,notification:{title,body},data:{url:"/",...data}});return true}
     catch(e){
       const message=String(e);console.error("Chatly FCM send failed:",message);
