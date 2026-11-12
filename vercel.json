@@ -1,6 +1,7 @@
 {
   "functions": {
-    "api/index.ts": { "maxDuration": 30 }
+    "api/index.ts": { "maxDuration": 30, "includeFiles": ".env" },
+    "api/diag.ts": { "includeFiles": ".env" }
   },
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/index.ts" },
