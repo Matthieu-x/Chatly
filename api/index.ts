@@ -1,5 +1,26 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { randomBytes, createHash, randomInt } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+// Lee el archivo .env incluido en el proyecto (vercel.json lo añade con includeFiles).
+// Si Vercel ya define la variable, esa tiene prioridad.
+function loadDotEnv():string|null{
+  for(const p of [join(process.cwd(),".env"),"/var/task/.env"]){
+    try{
+      const txt=readFileSync(p,"utf8");
+      for(const line of txt.split(/\r?\n/)){
+        const m=line.match(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/);
+        if(!m)continue;
+        let v=m[2].trim();
+        if((v.startsWith('"')&&v.endsWith('"'))||(v.startsWith("'")&&v.endsWith("'")))v=v.slice(1,-1);
+        if(!process.env[m[1]])process.env[m[1]]=v;
+      }
+      return p;
+    }catch{}
+  }
+  return null;
+}
+const dotEnvPath=loadDotEnv();
 
 // Carga perezosa: si una dependencia o la URL de Turso fallan, el error se devuelve como JSON
 // (en vez de tumbar la función con FUNCTION_INVOCATION_FAILED).
