@@ -1,14 +1,16 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { createClient } from "@libsql/client";
 import { randomBytes, createHash, randomInt } from "node:crypto";
-import { cert, getApps, initializeApp } from "firebase-admin/app";
-import { getMessaging } from "firebase-admin/messaging";
-import { put } from "@vercel/blob";
 
-const db = createClient({
-  url: process.env.TURSO_DATABASE_URL || "file:local.db",
-  authToken: process.env.TURSO_AUTH_TOKEN
-});
+// Carga perezosa: si una dependencia o la URL de Turso fallan, el error se devuelve como JSON
+// (en vez de tumbar la función con FUNCTION_INVOCATION_FAILED).
+let _db:any=null;
+async function getDb(){
+  if(_db)return _db;
+  const {createClient}=await import("@libsql/client");
+  _db=createClient({url:(process.env.TURSO_DATABASE_URL||"").trim(),authToken:(process.env.TURSO_AUTH_TOKEN||"").trim()});
+  return _db;
+}
+const db={execute:async(q:any):Promise<any>=>(await getDb()).execute(q)};
 const hash = (s:string) => createHash("sha256").update(s + (process.env.SESSION_SECRET || "chatly-dev-secret-change-me")).digest("hex");
 const token = (bytes=32) => randomBytes(bytes).toString("base64url");
 const id = () => randomBytes(16).toString("hex");
@@ -49,8 +51,10 @@ async function initDb(){
   })();
   return schemaReady;
 }
-function firebaseAdmin(){
+async function firebaseAdmin(){
   if(!process.env.FIREBASE_SERVICE_ACCOUNT_JSON) return null;
+  const {cert,getApps,initializeApp}=await import("firebase-admin/app");
+  const {getMessaging}=await import("firebase-admin/messaging");
   if(!getApps().length){
     const service=JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
     if(!service.project_id||!service.client_email||!service.private_key)throw new Error("FIREBASE_SERVICE_ACCOUNT_JSON no contiene una cuenta de servicio válida.");
@@ -60,7 +64,7 @@ function firebaseAdmin(){
   return getMessaging();
 }
 async function pushTo(userId:string,title:string,body:string,data:Record<string,string>={}){
-  const messaging=firebaseAdmin();
+  const messaging=await firebaseAdmin();
   if(!messaging)return {configured:false,sent:0,failed:0,reason:"missing-admin-credentials"};
   const rows=await db.execute({sql:"SELECT fcm_token FROM sessions WHERE user_id=? AND active=1 AND fcm_token IS NOT NULL",args:[userId]});
   const tokens=rows.rows.map(r=>String(r.fcm_token)).filter(Boolean);
@@ -216,6 +220,7 @@ export default async function handler(req:VercelRequest,res:VercelResponse){
       if(!/^[A-Za-z0-9+/]*={0,2}$/.test(base64))return respond(res,400,{error:"El archivo no tiene un formato válido."});
       const bytes=Buffer.from(base64,"base64");
       if(!bytes.length||bytes.length>2.5*1024*1024)return respond(res,413,{error:"Cada archivo debe pesar como máximo 2.5 MB."});
+      const {put}=await import("@vercel/blob");
       const blob=await put(`chatly/${me.userId}/${Date.now()}-${cleanName}`,bytes,{access:"public",addRandomSuffix:true,contentType:safeMime,token:process.env.BLOB_READ_WRITE_TOKEN});
       return respond(res,201,{url:blob.url,size:bytes.length,fileName:cleanName,mimeType:safeMime});
     }
